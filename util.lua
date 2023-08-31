@@ -3144,10 +3144,6 @@ show_debug_ui = function()
     addTextView(layout, "作业存放的文件夹（电脑地址）")
     ui.addEditText(layout, "homework_folder", "")
 
-
-
-
-
     -- newRow(layout)
     -- ui.addCheckBox(layout, "enable_keepalive",
     --                "保活模式(需关root通知与“X正在运行”通知)",
