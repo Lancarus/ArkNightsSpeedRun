@@ -140,13 +140,13 @@ path.base = {
         fight_start_time = fight_start_time or time()
         local elapsed = time() - fight_start_time
         local fight_type = get_fight_type(cur_fight)
-
+        log("接管作战")
         -- 一般10分钟，剿灭40分钟
         local fight_timeout = (table.includes({ "剿灭" }, fight_type) and elapsed >
                 40 * 60 * 1000) or
             (not table.includes({ "剿灭" }, fight_type) and
                 elapsed > 10 * 60 * 1000)
-
+        log(fight_timeout)
         -- 超时跳过当前关
         if fight_timeout then
             local info = table.join(qqmessage, ' ') .. " [" .. cur_fight ..
@@ -162,6 +162,7 @@ path.base = {
         if not wait(function()
                 if not findOne("接管作战") then return true end
                 -- log(126)
+                --if findOne("跳过剧情") then path.跳过剧情() end
                 if findOne("暂停中") and not disappear("暂停中", 5) then
                     tap("开包skip")
                     disappear("暂停中")
@@ -376,6 +377,140 @@ path.base = {
     end,
 
 }
+
+auto_skill = function()
+    --自己手打的时候自动放技能
+    local skillArray = {}
+    local skillUseOnce = { 横扫架势 = 0, }
+    local skillFind
+    local sameSkillInterval
+    local blackList = { { -1, -1 } }
+    local timeTick = os.time()
+    print(blackList)
+    local skillRelease = function()
+        print("try skillRelease")
+        wait(function()
+            tap("开技能")
+            if disappear("生命值蓝", 1) then
+                return true
+            else
+                tap("点cost")
+                disappear("生命值蓝", 1)
+            end
+        end)
+    end
+
+    local isInBlackList = function(tb1, tb2)
+        if tb2 and #tb2 > 0 then
+            for _, v in ipairs(tb2) do
+                if math.abs(tb1[1] - v[1]) + math.abs(tb1[2] - v[2]) < 20 then
+                    return true
+                end
+            end
+        end
+    end
+
+
+    while true do
+        skillFind1 = findOne("技能亮", 0.93)
+        skillFindAll = findOnes("技能亮", 0.93)
+        --[===[        if skillFind then
+		log(skillFind)
+		log(skillFindAll)
+		end]===]
+
+
+        startBattle = findOne("开始行动")
+        --startBattle = false
+        if startBattle then
+            blackList = { { -1, -1 } }
+            skillArray = {}
+            log("重新开始战斗，清理")
+        end
+
+
+
+        log(skillFindAll)
+
+        for i = 1, #skillFindAll do
+            skillFind = { skillFindAll[i]["x"], skillFindAll[i]["y"] }
+            log(skillFind)
+
+            -- xy坐标 + 时间戳
+            local skillUse = { skillFind[1], skillFind[2], os.time() }
+
+            -- 时间差
+            local usedTimeGap = -1
+            -- 查到的下标
+            local findIndex = 0
+
+            for i = 1, #skillArray do
+                --计算坐标绝对值差
+                local dx = skillArray[i][1] - skillUse[1]
+                local dy = skillArray[i][2] - skillUse[2]
+                log("坐标差")
+                log(math.abs(dx) + math.abs(dy))
+                if math.abs(dx) + math.abs(dy) < 10 then
+                    log("搜索到历史使用记录")
+                    findIndex = i
+                    usedTimeGap = skillUse[3] - skillArray[i][3]
+                    log("使用时间差")
+                    log(usedTimeGap)
+                    goto searchResult
+                end
+            end
+
+            ::searchResult::
+
+
+            if usedTimeGap ~= -1 and usedTimeGap < 10 then
+                log("时间差过小跳过执行,忽略本次查找到的结果")
+                goto continue
+            end
+
+            if findIndex == 0 then
+                -- 存入使用记录
+                log("新增使用记录")
+                table.insert(skillArray, skillUse)
+            end
+
+            if findIndex ~= 0 then
+                -- 存入使用记录
+                log("存入使用记录")
+                skillArray[findIndex] = skillUse
+            end
+
+
+            if not isInBlackList(skillFind, blackList) then
+                tap({ skillFind[1], skillFind[2] + scale(140) })
+                -- appear("技能ready", 5)
+                ssleep(0.1)
+                appear("生命值蓝", 5)
+                --ocr 干员技能名字
+                local skillName = ocr("技能名称范围")
+                if skillName and #skillName > 0 then
+                    print(blackList, skillFind)
+                    if skillName[1]["text"] == "横扫架势" then
+                        table.insert(blackList, skillFind)
+                        if skillUseOnce["横扫架势"] == 0 then
+                            skillUseOnce["横扫架势"] = 1
+                            print(blackList)
+                        else
+                            tap("点cost")
+                            disappear("生命值蓝", 1)
+                            goto noSkillRelease
+                        end
+                    end
+                end
+                skillRelease()
+                ::noSkillRelease::
+            end
+            ::continue::
+        end
+        ssleep(0.2)
+    end
+    exit()
+end
 
 path.bilibili_login = {
 
@@ -2251,7 +2386,7 @@ path.总览换班 = function()
         local y2 = screen.height - scale(300)
         local paths = {
             { point = { { x1, y1 }, { x3, y1 } }, duration = duration },
-            { point = { { x1, y2 }, { x2, y2 } }, duration = flipd,   start = flips },
+            { point = { { x1, y2 }, { x2, y2 } }, duration = flipd, start = flips },
         }
         -- sleep(100)
         gesture(paths)
@@ -3205,8 +3340,6 @@ get_fight_type = function(x)
         return "上一次"
     elseif table.any({ "PR", "CE", "CA", "AP", "LS", "SK" }, f) then
         return "物资芯片"
-    elseif table.any({ "CW" }, f) then
-        return "插曲"
     elseif table.any(table.values(jianpin2name), f) then
         return "剿灭"
     elseif f('HD') then
@@ -3318,10 +3451,12 @@ extrajianpin2name = {
     当前委托 = "当期委托",
 }
 
+
+
 path.开始游戏 = function(x, disable_ptrs_check)
     -- 记录石头数量
     save_run_state()
-
+    local need_copy_homework = nil
     log("开始游戏", fight_tick, x)
     if not findOne("开始行动") then return end
     if x == "1-11" then return path["1-11"] end
@@ -3335,13 +3470,33 @@ path.开始游戏 = function(x, disable_ptrs_check)
     -- log(findOne("开始行动"))
     -- safeexit()
 
+
     if not appear("代理指挥开", .5) then
+        if copy_homework and findOne("突袭模式") then
+            tap("突袭模式")
+            appear("开始突袭", 2)
+            if findOne("突袭未三星") or not copy_homework_only then
+                tap("开始突袭")
+                appear("开始行动突袭", 2)
+                goto wait_for_maa
+            else
+                return true
+            end
+        end
+
         tap("代理指挥开1")
         if not appear("代理指挥开", .5) then
-            -- clean_fight(x)
-            fight_failed_times[cur_fight] = max_fight_failed_times
-            if not appear("主页") then back() end
-            return path.跳转("首页")
+            if copy_homework then
+                need_copy_homework = true
+                ssleep(6) --等待右上角提示消失
+            else
+                -- clean_fight(x)
+                fight_failed_times[cur_fight] = max_fight_failed_times
+                if not appear("主页") then back() end
+                return path.跳转("首页")
+            end
+        elseif copy_homework_only then
+            return
         end
         -- if not wait(function()
         --   if findOne("代理指挥开") and not disappear("代理指挥开", .5) then
@@ -3363,11 +3518,13 @@ path.开始游戏 = function(x, disable_ptrs_check)
     end, 1)
     if fake_fight then return end
 
+    ::wait_for_maa::
+
     local state = nil
     local start_time = time()
     if not wait(function(reset_wait_start_time)
             state = findAny({
-                "开始行动红", "源石恢复理智取消", "药剂恢复理智取消",
+                "开始行动突袭", "开始行动红", "源石恢复理智取消", "药剂恢复理智取消",
                 "单选确认框", "源石恢复理智不足", "当期委托侧边栏",
                 "行动结束",
             })
@@ -3376,14 +3533,14 @@ path.开始游戏 = function(x, disable_ptrs_check)
                 path.跳转("首页")
                 return true
             end
-
             if state == "单选确认框" then return true end
             if state == "开始行动红" then return true end
+            if state == "开始行动突袭" then return true end --我也没看懂这是干嘛的,先加着
             if state == "行动结束" then return true end
             if state and not disappear(state, .5) then return true end
             if findOne("正在提交反馈至神经") then reset_wait_start_time() end
 
-            local p = findAny({ "开始行动", "全权委托确认使用" })
+            local p = findAny({ "开始行动", "全权委托确认使用", "开始突袭" })
             if p then
                 tap("开始行动蓝")
                 -- TODO 2秒太慢 => 一开始就用0秒, 2秒内增加至2秒
@@ -3399,40 +3556,50 @@ path.开始游戏 = function(x, disable_ptrs_check)
     if state == "行动结束" then
         no_success_one_loop = 0
         return path.base.接管作战()
-    elseif state == "开始行动红" then
+    elseif state == "开始行动红" or (state == "开始行动突袭" and not copy_homework) then
         no_success_one_loop = 0
-        if fake_fight then
-            log("debug0415", x)
+        if need_copy_homework then
+            ssleep(0.5)
+            maa_copliot(x)
+        else
+            if fake_fight then
+                log("debug0415", x)
+                if not wait(function()
+                        if not findOne(state) and not appear(state, 1) then return true end
+                        tap("返回")
+                        disappear(state, 1)
+                    end, 5) then
+                    return
+                end
+                return path.base.接管作战()
+            end
             if not wait(function()
-                    if not findOne(state) and not appear(state, 1) then return true end
-                    tap("返回")
-                    disappear(state, 1)
-                end, 5) then
+                    if not findOne(state) then return true end
+                    tap("开始行动红按钮")
+                end, 10) then
                 return
             end
-            return path.base.接管作战()
-        end
-        if not wait(function()
-                if not findOne(state) then return true end
-                tap("开始行动红按钮")
-            end, 10) then
-            return
-        end
-        if not wait(function()
-                if findAny({ "接管作战", "单选确认框", "剿灭接管作战" }) then
-                    return true
-                end
-            end, 60) then
-            -- if findOne("跳过剧情2") and not disappear("跳过剧情2", 10) then
-            path.跳过剧情()
+            if not wait(function()
+                    if findAny({ "接管作战", "单选确认框", "剿灭接管作战" }) then
+                        return true
+                    end
+                end, 60) then
+                -- if findOne("跳过剧情2") and not disappear("跳过剧情2", 10) then
+                path.跳过剧情()
+                -- end
+                return
+            end
+            -- if not appear({"接管作战", "单选确认框"}, 60) then
+            --   log(1430)
+            --   return
             -- end
-            return
+            if findOne("单选确认框") then return end
         end
-        -- if not appear({"接管作战", "单选确认框"}, 60) then
-        --   log(1430)
-        --   return
-        -- end
-        if findOne("单选确认框") then return end
+        return path.base.接管作战()
+    elseif state == "开始行动突袭" then
+        no_success_one_loop = 0
+        ssleep(0.5)
+        maa_copliot(x .. "H")
         return path.base.接管作战()
     elseif stone_times < max_stone_times and state == "源石恢复理智取消" or
         drug_times < max_drug_times and state == "药剂恢复理智取消" then
@@ -3699,44 +3866,6 @@ path.主线 = function(x)
     -- 10秒内需要完成章节/环境切换
     auto(p, nil, 10, 10)
 
-    path.开始游戏(x)
-end
-
-path.插曲 = function(x)
-    log("插曲")
-    local chapter = x:find("-")
-    chapter = x:sub(1, chapter - 1)
-    if findOne("开始行动") then return path.开始游戏(x) end
-    path.跳转("首页")
-    tap("面板作战")
-    if not appear("主页") then return end
-    if not wait(function()
-            if findOne("插曲界面") then return true end
-            tap("插曲")
-        end) then
-        return
-    end
-    if not wait(function()
-            tap("插曲列表" .. chapter)
-            if findOne("进入活动") then return true end
-        end) then
-        return
-    end
-    if not wait(function()
-            tap("进入活动")
-            if not appear("进入活动") then return true end
-        end) then
-        return
-    end
-    swip(x)
-    ssleep(.5)
-    tap("作战列表" .. x)
-    if not appear("开始行动") then
-        wait(function()
-            if appear("主页") then return true end
-            back()
-        end, 30)
-    end
     path.开始游戏(x)
 end
 
@@ -4318,16 +4447,30 @@ path.活动 = function(x)
     end
     car_check()
     if not findOne("活动导航0") then return end
-    if not wait(function()
-            -- local level = str2int(x:sub(#x), 1)
-            -- local level2nav = {3, 1, 1, 1, 1, 1, 2, 2, 2, 3}
-            -- tap("活动导航" .. level2nav[level + 1])
-
-            tap("活动导航1")
-            ssleep(.5)
-            if not appear("活动导航0", 1) then return true end
-        end, 5) then
-        return
+    if utf8.left(x, 5) == "HD-EX" then --提取x的前面五个，如果是"HD-EX"，则进入活动的ex界面
+        if not wait(function()
+                tap("活动导航ex")
+                ssleep(.5)
+                if not appear("活动导航0", 1) then return true end
+            end, 5) then
+            return
+        end
+    elseif utf8.left(x, 4) == "HD-S" or utf8.left(x, 5) == "HD-MO" then --提取x的前面4个，如果是"HD-S"，则进入活动的S界面
+        if not wait(function()
+                tap("活动导航S")
+                ssleep(.5)
+                if not appear("活动导航0", 1) then return true end
+            end, 5) then
+            return
+        end
+    else --正常流程进入活动的第一阶段界面
+        if not wait(function()
+                tap("活动导航1")
+                ssleep(.5)
+                if not appear("活动导航0", 1) then return true end
+            end, 5) then
+            return
+        end
     end
 
     -- ssleep(2)
@@ -4415,24 +4558,24 @@ path.活动任务与商店 = function()
     end
 
     --[[
-  if t<=hd2_shop_open_time_end then
-    for k, _ in pairs(point) do
-      if k:startsWith("活动2") then
-        local rk = k:sub(1, 6) .. k:sub(8)
-        point[rk] = point[k]
-        rfl[rk] = rfl[k]
-      end
-    end
-    point.面板活动 = point.面板活动2
-    rfl.面板活动 = rfl.面板活动2
-  end
-  if hd2_mod == "故事集" then
-    path.活动商店()
-    path.故事集提交碎片()
-  elseif hd2_mod == "ss" then
-    path.ss活动任务与商店()
-  end
-]]
+	if t<=hd2_shop_open_time_end then
+	for k, _ in pairs(point) do
+	if k:startsWith("活动2") then
+	local rk = k:sub(1, 6) .. k:sub(8)
+	point[rk] = point[k]
+	rfl[rk] = rfl[k]
+	end
+	end
+	point.面板活动 = point.面板活动2
+	rfl.面板活动 = rfl.面板活动2
+	end
+	if hd2_mod == "故事集" then
+	path.活动商店()
+	path.故事集提交碎片()
+	elseif hd2_mod == "ss" then
+	path.ss活动任务与商店()
+	end
+	]]
 end
 
 path.ss活动2任务与商店 = function()
@@ -4519,14 +4662,14 @@ path.ss活动任务与商店 = function()
     if not appear("活动导航0") then return end
 
     --[[
-  wait(function()
-    -- if findOne("活动任务一键领取") then return true end
-    tap("活动商店")
-    if not appear("主页", 1) or findOne("活动商店横线") then
-      return true
-    end
-  end)
-]]
+	wait(function()
+	-- if findOne("活动任务一键领取") then return true end
+	tap("活动商店")
+	if not appear("主页", 1) or findOne("活动商店横线") then
+	return true
+	end
+	end)
+	]]
 
     g = function()
         if not wait(function()
@@ -5060,7 +5203,7 @@ path.访问好友 = function()
             -- if not findOne("好友列表") then return true end
         end, 30) then
         return
-    end -- 无好友或网络超时10秒
+    end                   -- 无好友或网络超时10秒
     log(2256)
     if speedrun then
         disappear("正在提交反馈至神经", network_timeout)
@@ -5194,10 +5337,10 @@ path.公开招募 = function()
                     r = ocr("公开招募标签框范围")
                     tags = {}
                     for _, p in pairs(r) do
-                        p.text = tagFix(p.text)             -- 替换常见错别字
+                        p.text = tagFix(p.text) -- 替换常见错别字
                         if table.includes(tag, p.text) then -- 处理已知tag
                             tags[p.text] = { (p.l + p.r) // 2, (p.t + p.b) // 2 }
-                        else                                -- 出现未知文字，重试
+                        else              -- 出现未知文字，重试
                             tags = {}
                             return
                         end
