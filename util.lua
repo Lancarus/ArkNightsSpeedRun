@@ -665,7 +665,7 @@ end
 -- TODO: better algorithms
 loop_times = function(x)
     local times, f, n
-    local maxlen = 40  -- of one piece
+    local maxlen = 40 -- of one piece
     local maxtimes = 1 -- of same pieces
     if x == nil or #x == 0 then return 0 end
     for i = 1, maxlen do
@@ -834,7 +834,6 @@ findOne = function(x, confidence)
     end
 
     local x0 = x
-
     confidence = confidence or default_findcolor_confidence
 
     if type(x) == 'string' and not x:find(coord_delimeter) then x = point[x] end
@@ -860,7 +859,6 @@ findOne = function(x, confidence)
         else
             local px, py
             -- log(x0, rfg[x0], first_color[x0], x)
-            --print (x)
             px, py = findMultiColor(rfg[x0][1], rfg[x0][2], rfg[x0][3], rfg[x0][4],
                 first_color[x0], x, 0, confidence)
             if px ~= -1 then pos = { px, py } end
@@ -2578,50 +2576,132 @@ clean_table = function(t, idx, bad)
     return ans, idx
 end
 
-hotUpdate = function()
+-- hotUpdate = function()
+--   toast("正在检查更新...")
+--   if disable_hotupdate then return end
+--   -- https://gitee.com/bilabila/arknights/raw/master
+--   -- local url = 'https://gitee.com/bilabila/arknights/raw/master/script.lr'
+--   local url = update_source .. '/script.lr'
+--   if beta_mode then url = url .. '.beta' end
+--   local md5url = url .. '.md5'
+--   local path = getWorkPath() .. '/newscript.lr'
+--   local md5path = path .. '.md5'
+--   if downloadFile(md5url, md5path) == -1 then
+--     toast("下载校验数据失败")
+--     ssleep(3)
+--     return
+--   end
+--   local f = io.open(md5path, 'r')
+--   local expectmd5 = f:read() or '1'
+--   f:close()
+--   if #expectmd5 ~= #'b966ddd58fd64b2f963a0c6b61b463ce' and update_source ~=
+--     update_source_fallback then
+--     log(2405)
+--     update_source = update_source_fallback
+--     return hotUpdate()
+--   end
+--   if expectmd5 == loadConfig("lr_md5", "2") then
+--     toast("已经是最新版")
+--     return
+--   end
+--   -- log(3, expectmd5, loadConfig("lr_md5", "2"))
+--   if downloadFile(url, path) == -1 then
+--     toast("下载最新脚本失败")
+--     ssleep(3)
+--     return
+--   end
+--   if fileMD5(path) ~= expectmd5 then
+--     toast("脚本校验失败")
+--     ssleep(3)
+--     return
+--   end
+--   installLrPkg(path)
+--   saveConfig("lr_md5", expectmd5)
+--   sleep(1000)
+--   -- log(5, expectmd5, loadConfig("lr_md5", "2"))
+--   log("已更新至最新")
+--   return restartScript()
+-- end
+
+check_hot_update = function()
     toast("正在检查更新...")
-    if disable_hotupdate then return end
-    -- https://gitee.com/bilabila/arknights/raw/master
-    -- local url = 'https://gitee.com/bilabila/arknights/raw/master/script.lr'
-    local url = update_source .. '/script.lr'
-    if beta_mode then url = url .. '.beta' end
-    local md5url = url .. '.md5'
-    local path = getWorkPath() .. '/newscript.lr'
-    local md5path = path .. '.md5'
-    if downloadFile(md5url, md5path) == -1 then
-        toast("下载校验数据失败")
+
+    local file_md5 = loadConfig("lr_md5", "null")
+    local skill_md5 = loadConfig("skill_md5", "null")
+
+    -- 检查是否需要更新
+    local res, code = httpGet(
+        update_source .. "/checkUpdate?lr_md5=" .. tostring(file_md5) ..
+        "&skill_md5=" .. tostring(skill_md5), 30)
+    if code == -1 then
+        toast("无法连接到热更新服务器")
         ssleep(3)
-        return
+        return false
     end
-    local f = io.open(md5path, 'r')
-    local expectmd5 = f:read() or '1'
-    f:close()
-    if #expectmd5 ~= #'b966ddd58fd64b2f963a0c6b61b463ce' and update_source ~=
-        update_source_fallback then
-        log(2405)
-        update_source = update_source_fallback
-        return hotUpdate()
+    local status, data = pcall(JsonDecode, res)
+    local update_info = data.data
+    return update_info
+end
+
+updateLr = function(update_info)
+    if update_info.updateLr then
+        toast("正在更新脚本...")
+        if downloadFile(update_info.lrUrl, new_script_path) == -1 then
+            toast("下载最新版本失败")
+            ssleep(3)
+            return false
+        end
+    else
+        toast("脚本已经是最新版")
+        return true
     end
-    if expectmd5 == loadConfig("lr_md5", "2") then
-        toast("已经是最新版")
-        return
-    end
-    -- log(3, expectmd5, loadConfig("lr_md5", "2"))
-    if downloadFile(url, path) == -1 then
-        toast("下载最新脚本失败")
-        ssleep(3)
-        return
-    end
-    if fileMD5(path) ~= expectmd5 then
+    if fileMD5(new_script_path) ~= update_info.lrMD5 then
         toast("脚本校验失败")
         ssleep(3)
+        return false
+    end
+    installLrPkg(new_script_path)
+    saveConfig("lr_md5", update_info.lrMD5)
+    return true
+end
+
+updateSkill = function(update_info)
+    if update_info.updateSkill then
+        toast("正在更新基建图标...")
+        if downloadFile(update_info.skillUrl, skill_path) == -1 then
+            toast("下载最新版本基建图标失败")
+            ssleep(3)
+            return false
+        end
+    else
+        toast("基建图标已经是最新版")
+        return true
+    end
+    if fileMD5(skill_path) ~= update_info.skillMD5 then
+        toast("基建图标校验失败")
+        ssleep(3)
+        return false
+    end
+    unZip(skill_path, skill_extract_path)
+    saveConfig("skill_md5", update_info.skillMD5)
+    return true
+end
+
+hotUpdate = function()
+    if disable_hotupdate then
+        log("热更新已禁用")
         return
     end
-    installLrPkg(path)
-    saveConfig("lr_md5", expectmd5)
+    local update_info = check_hot_update()
+    if not update_info.updateLr and not update_info.updateSkill then
+        toast("已经是最新版")
+        return true
+    end
+    updateLr(update_info)
+    updateSkill(update_info)
+
     sleep(1000)
-    -- log(5, expectmd5, loadConfig("lr_md5", "2"))
-    log("已更新至最新")
+    log("更新完成")
     return restartScript()
 end
 
@@ -2838,19 +2918,19 @@ show_help_ui = function()
     ui.setTitleText(layout, "必读")
     newRow(layout)
     addTextView(layout, [[
-		源码与其他脚本：github.com/tkkcc/arknights
-		好用的话在上面github链接里登录后点下star
-		不star属于白嫖行为，开发者也没动力更新下去了
-		有问题加群反馈1009619697
-		国内主页：gitee.com/bilabila/arknights
-		商用要求：可卖脚本与服务，修改代码再卖需开源
-		
-		最近更新：
-		1. 刷肉鸽等级(蜡烛)已加。
-		1. 第10章已加。
-		1. 新增root保活，雷电2核2G内存可无限挂肉鸽。需手动关闭root授权提示（设置-超级用户-右上角三个点-通知-无）。
-		
-		]])
+源码与其他脚本：github.com/tkkcc/arknights
+好用的话在上面github链接里登录后点下star
+不star属于白嫖行为，开发者也没动力更新下去了
+有问题加群反馈1009619697
+国内主页：gitee.com/bilabila/arknights
+商用要求：可卖脚本与服务，修改代码再卖需开源
+
+最近更新：
+1. 刷肉鸽等级(蜡烛)已加。
+1. 第10章已加。
+1. 新增root保活，雷电2核2G内存可无限挂肉鸽。需手动关闭root授权提示（设置-超级用户-右上角三个点-通知-无）。
+
+]])
 
     newRow(layout)
     ui.addButton(layout, layout .. "_stop", "返回")
@@ -2859,7 +2939,7 @@ show_help_ui = function()
 
     newRow(layout)
     addTextView(layout, [[
-		]])
+]])
 
     --   newRow(layout)
     --   addTextView(layout, [[
@@ -3119,31 +3199,6 @@ show_debug_ui = function()
     addTextView(layout, "多账号仅传递线索账号(线索小号)")
     ui.addEditText(layout, "multi_account_disable_clue_unlock", '')
 
-    --抄作业相关
-    newRow(layout)
-    ui.addCheckBox(layout, "copy_homework",
-        "使用MAA抄作业", false)
-
-    newRow(layout)
-    ui.addCheckBox(layout, "copy_homework_only",
-        "只抄作业不打已三星关卡", false)
-
-    newRow(layout)
-    addTextView(layout, "adb路径（从maa拷贝）")
-    ui.addEditText(layout, "adb_adress", "")
-
-    newRow(layout)
-    addTextView(layout, "模拟器地址（从maa拷贝）")
-    ui.addEditText(layout, "simulator_host", "")
-
-    newRow(layout)
-    addTextView(layout, "电脑ipv4地址")
-    ui.addEditText(layout, "pc_ipv4", "")
-
-    newRow(layout)
-    addTextView(layout, "作业存放的文件夹（电脑地址）")
-    ui.addEditText(layout, "homework_folder", "")
-
     -- newRow(layout)
     -- ui.addCheckBox(layout, "enable_keepalive",
     --                "保活模式(需关root通知与“X正在运行”通知)",
@@ -3154,12 +3209,12 @@ show_debug_ui = function()
 
     newRow(layout)
     addTextView(layout, [[
-		
-		
-		以下设置仅用于调试，如有修改后果自负！！！
-		
-		
-		]])
+
+
+以下设置仅用于调试，如有修改后果自负！！！
+
+
+]])
 
     -- newRow(layout)
     -- addTextView(layout, "前瞻投资重启游戏间隔(游戏有内存泄漏)")
@@ -3700,15 +3755,15 @@ enable_accessibility_service = function(after_killacc)
         end), ':')
         log("3366", other_services)
         local cmd = [[su root sh -c '
-			settings put secure enabled_accessibility_services ]] .. other_services ..
+settings put secure enabled_accessibility_services ]] .. other_services ..
             (#other_services > 0 and ':' or '') .. service .. [[;
-			settings put secure enabled_accessibility_services ]] ..
+settings put secure enabled_accessibility_services ]] ..
             (#other_services > 0 and other_services or [['\'\'']]) .. [[;
-			
-			settings put secure enabled_accessibility_services ]] .. other_services ..
+
+settings put secure enabled_accessibility_services ]] .. other_services ..
             (#other_services > 0 and ':' or '') .. service .. [[;
-			
-			' 2>&1 ]]
+
+' 2>&1 ]]
         local out = exec(cmd)
         log(3386, cmd)
         log(3387, out)
@@ -3734,9 +3789,9 @@ enable_snapshot_service = disable_game_up_check_wrapper(function()
     if root_mode then
         log("enable snapshot permission by root")
         exec([[su root sh -c '
-			appops set ]] .. package .. [[ PROJECT_MEDIA allow
-			appops set ]] .. package .. [[ SYSTEM_ALERT_WINDOW allow
-			']])
+appops set ]] .. package .. [[ PROJECT_MEDIA allow
+appops set ]] .. package .. [[ SYSTEM_ALERT_WINDOW allow
+']])
     end
 
     -- log("3444", 3444)
@@ -3889,55 +3944,25 @@ test_fight_hook = function()
     exit()
 end
 
-maa_copliot = function(x)
-    log("开始抄作业", x)
-    local headers = "Content-Type: application/json" --post请求头
-    --[===[local resp  ]===]
-    log(homework_folder .. "\\" .. x .. ".json")
-    --通过接口调用抄作业
-    local t2 = {
-        id = simulator_id,
-        type = "Copilot",
-        params = { enable = true, filename = homework_folder .. "\\" .. x .. ".json", formation = true }
-    }
-    log(JsonEncode(t2))
-    log("post作业，唤起抄作业流程")
-    function callback(response, code)
-        print(response)
-        resp = response
-    end
-
-    --[===[asynHttpPost(callback,"http://" .. pc_ipv4 .. ":8848/API/V1/appendTaskAndStart",JsonEncode(t2),30,headers)
-	while not resp ==true do
-	ssleep (1)
-	end]===]
-    local res, code = httpPost("http://" .. ip .. ":8848/API/V1/appendTaskAndStart", JsonEncode(t2), 100, headers)
-    log("post结束")
-    log("延时100s防止乱点")
-    ssleep(100) --延时100s防止乱点
-    for i = 1, 260 do
-        local state = findAny({ "作战中", "暂停中", "行动结束", "跳过剧情" })
-        if state == "作战中" or state == "暂停中" then
-        elseif state == "行动结束" then
-            break
-        elseif state == "跳过剧情" then
-            path.跳过剧情()
-        end
-        ssleep(5)
-    end
-end
-
 predebug_hook = function()
     if not predebug then return end
     tap_interval = -1
     findOne_interval = -1
     zl_skill_times = 100
-    copy_homework = true
 
-    print(findOne("开始行动红"), findOne("开始行动突袭"))
+    disable_game_up_check = true
+    swip("HD-2")
+    -- tap("作战列表HD-8")
+
+    log(findOne("就这么决定了"))
+    -- local p = findOne("同意协议")
+    -- if p ~= nil then
+    --   local left, top = p.bounds.l, p.bounds.t
+    --   tap({left - scale(10), top + scale(10)})
+    -- end
+    findTap({ text = "下一步" })
     exit()
 end
-
 
 _exec = exec
 check_root_mode = function()
@@ -4024,17 +4049,6 @@ parse_fight_config = function(fight_ui)
         elseif table.includes({ 'HD1' }, v) then
             for i = 10, 1, -1 do table.insert(expand_fight, 'HD' .. '-' .. i) end
             table.insert(expand_fight, "BREAK")
-        elseif table.includes({ 'HD2' }, v) then                --【速通输入，“hd3”“HD3”】都会插入16个关卡坐标
-            for i = 1, 8 do
-                table.insert(expand_fight, 'HD-EX' .. '-' .. i) --插入ex普通关卡
-                table.insert(expand_fight, 'HD-EX' .. '-' .. i) --插入ex突袭关卡，做两次检测
-            end
-        elseif table.includes({ 'HD3' }, v) then                --【速通输入，“hd3”“HD3”】都会插入16个关卡坐标
-            for i = 1, 5 do
-                table.insert(expand_fight, 'HD-S' .. '-' .. i)  --插入ex普通关卡
-                table.insert(expand_fight, 'HD-S' .. '-' .. i)  --插入ex突袭关卡，做两次检测
-            end
-            table.insert(expand_fight, 'HD-MO-1')               --插入MO
         else
             table.insert(expand_fight, v)
         end
@@ -4070,10 +4084,10 @@ update_state_from_ui = function()
 
     -- 活动开放时间段
     hd_open_time_end = parse_time("202308220400")
-    hd_shop_open_time_end = parse_time("202306080400")  -- 活动商店关闭时间
+    hd_shop_open_time_end = parse_time("202306080400") -- 活动商店关闭时间
     hd2_open_time_end = parse_time("202303210400")
     hd2_shop_open_time_end = parse_time("202302240400") -- 活动2商店关闭时间
-    hd_mod = "ss"                                       -- 活动类型 "故事集"/"ss" 区分活动任务和是否活动作战
+    hd_mod = "ss"                                     -- 活动类型 "故事集"/"ss" 区分活动任务和是否活动作战
     hd2_mod = "故事集"
 
     -- 资源关全天开放时间段
@@ -4362,10 +4376,10 @@ request_game_permission = function()
     if always_request_appid[appid] then return end
     always_request_appid[appid] = 1
     local aapt = [[android.permission.ACCESS_WIFI_STATE
-	android.permission.READ_PHONE_STATE
-	android.permission.ACCESS_NETWORK_STATE
-	android.permission.INTERNET
-	android.permission.WRITE_EXTERNAL_STORAGE]]
+android.permission.READ_PHONE_STATE
+android.permission.ACCESS_NETWORK_STATE
+android.permission.INTERNET
+android.permission.WRITE_EXTERNAL_STORAGE]]
     local cmd = ''
     for s in aapt:gmatch("[^\r\n]+") do
         cmd = cmd .. 'pm grant ' .. appid .. ' ' .. s .. ';'
@@ -4463,9 +4477,9 @@ forever = function(f, ...) while true do f(...) end end
 make_extra_mode_hook = function(mode, multi)
     if not mode then return '' end
     local hook = [[;
-	extra_mode=]] .. string.format('%q', str(mode)) .. [[;
-	extra_mode_multi=]] .. str(multi and true or false) .. [[;
-	zl_no_waste_last_time=]] .. str(zl_no_waste_last_time)
+extra_mode=]] .. string.format('%q', str(mode)) .. [[;
+extra_mode_multi=]] .. str(multi and true or false) .. [[;
+zl_no_waste_last_time=]] .. str(zl_no_waste_last_time)
     return hook
 end
 
@@ -4477,14 +4491,14 @@ make_drug_stone_times_hook = function()
     local hook = ''
     if not idx then
         hook = [[;
-		max_stone_times=]] .. stone_remain_times .. [[;
-		max_drug_times=]] .. drug_remain_times .. [[;
-		]]
+max_stone_times=]] .. stone_remain_times .. [[;
+max_drug_times=]] .. drug_remain_times .. [[;
+]]
     else
         hook = [[;
-		multi_account_user]] .. idx .. [[max_stone_times=]] .. stone_remain_times .. [[;
-		multi_account_user]] .. idx .. [[max_drug_times=]] .. drug_remain_times .. [[;
-		]]
+multi_account_user]] .. idx .. [[max_stone_times=]] .. stone_remain_times .. [[;
+multi_account_user]] .. idx .. [[max_drug_times=]] .. drug_remain_times .. [[;
+]]
     end
     return hook
 end
@@ -4658,22 +4672,22 @@ killacc = function()
     ssleep(1)
 
     local cmd = [[nohup su root sh -c ' \
-	# settings put global heads_up_notifications_enabled 0
-	kill $(pidof ]] .. package .. [[:acc)
-	secs=2
-	endTime=$(( $(date +%s) + secs ))
-	while [ $(date +%s) -lt $endTime ]; do
-		pidof ]] .. package .. [[:acc && continue
-		break
-		done
-		secs=2
-		endTime=$(( $(date +%s) + secs ))
-		while [ $(date +%s) -lt $endTime ]; do
-			pidof ]] .. package .. [[:acc && break
-			done
-			echo -1000 > /proc/$(pidof ]] .. package .. [[:acc)/oom_score_adj
-			
-			' > /dev/null & ]]
+# settings put global heads_up_notifications_enabled 0
+kill $(pidof ]] .. package .. [[:acc)
+secs=2
+endTime=$(( $(date +%s) + secs ))
+while [ $(date +%s) -lt $endTime ]; do
+  pidof ]] .. package .. [[:acc && continue
+  break
+done
+secs=2
+endTime=$(( $(date +%s) + secs ))
+while [ $(date +%s) -lt $endTime ]; do
+  pidof ]] .. package .. [[:acc && break
+done
+echo -1000 > /proc/$(pidof ]] .. package .. [[:acc)/oom_score_adj
+
+' > /dev/null & ]]
 
     log(5031)
     exec(cmd)
@@ -4722,71 +4736,71 @@ restartPackage = function()
     end
     if not root_mode or disable_restart_package then return restartScript() end
     local cmd = [[nohup su root sh -c ' \
-			while :; do
-				am force-stop ]] .. oppid .. [[;
-				am force-stop ]] .. bppid .. [[;
-				am force-stop ]] .. package .. [=[;
-				sleep 1
-				input keyevent KEYCODE_HOME
-				sleep 1
-				secs=300
-				endTime=$(( $(date +%s) + secs ))
-				while [[ $(date +%s) -lt $endTime ]]; do
-					monkey -p ]=] .. package .. [=[ -c android.intent.category.LAUNCHER 1
-					foreground=$(dumpsys activity recents|sed -rn '\''s/.*Recent #0.*(com[^ ]+).*/\1/p'\'')
-					if [[ $foreground == *com.bilabila* ]];then
-						break
-						fi
-						sleep 5
-						done
-						secs=300
-						endTime=$(( $(date +%s) + secs ))
-						ok_found=0
-						while [[ $(date +%s) -lt $endTime ]]; do
-							sleep 5
-							foreground=$(dumpsys activity recents|sed -rn '\''s/.*Recent #0.*(com[^ ]+).*/\1/p'\'')
-							
-							if [[ ! $foreground == *com.bilabila* ]] && [[ $ok_found == 1 ]] ;then
-								exit
-								fi
-								
-								if [[ ! $foreground == *com.bilabila* ]];then
-									continue
-									fi
-									
-									uiautomator dump /sdcard/window_dump.xml
-									
-									cancel=$(sed -rn '\''s|.*text=.取消.[^>]*bilabila[^>]*bounds=.\[([0-9]*),([0-9]*)\]\[([0-9]*),([0-9]*)\]..*|input tap $(((\1+\3)/2)) $(((\2+\4)/2))|p'\'' /sdcard/window_dump.xml)
-									ok=$(sed -rn '\''s|.*text=.确定.[^>]*bilabila[^>]*bounds=.\[([0-9]*),([0-9]*)\]\[([0-9]*),([0-9]*)\]..*|input tap $(((\1+\3)/2)) $(((\2+\4)/2))|p'\'' /sdcard/window_dump.xml)
-									close=$(sed -rn '\''s|.*text=.关闭.[^>]*bilabila[^>]*bounds=.\[([0-9]*),([0-9]*)\]\[([0-9]*),([0-9]*)\]..*|input tap $(((\1+\3)/2)) $(((\2+\4)/2))|p'\'' /sdcard/window_dump.xml)
-									if [[ -n $close ]]; then
-										eval $close
-										fi
-										
-										if [[ -n $cancel ]]; then
-											eval $cancel
-											continue
-											elif [[ -n $ok ]]; then
-											sleep 1
-											eval $ok
-											ok_found=1
-											continue
-											fi
-											
-											#start=$(sed -rn '\''s|.*text=.立即开始.[^>]*bilabila[^>]*bounds=.\[([0-9]*),([0-9]*)\]\[([0-9]*),([0-9]*)\]..*|input tap $(((\1+\3)/2)) $(((\2+\4)/2))|p'\'' /sdcard/window_dump.xml)
-											#if [[ -n $start ]]; then
-												#  eval $start
-												#  continue
-												#fi
-												
-												# snap=$(sed -rn '\''s|.*com.bilabila.arknightsspeedrun23:id/switch_snap.[^>]*bilabila[^>]*bounds=.\[([0-9]*),([0-9]*)\]\[([0-9]*),([0-9]*)\]..*|input tap $(((\1+\3)/2)) $(((\2+\4)/2))|p'\'' /sdcard/window_dump.xml)
-												# if [[ -n $snap ]]; then
-													#   eval $snap
-													#   continue
-													# fi
-													done
-													done
-													' > /dev/null & ]=]
+while :; do
+am force-stop ]] .. oppid .. [[;
+am force-stop ]] .. bppid .. [[;
+am force-stop ]] .. package .. [=[;
+sleep 1
+input keyevent KEYCODE_HOME
+sleep 1
+secs=300
+endTime=$(( $(date +%s) + secs ))
+while [[ $(date +%s) -lt $endTime ]]; do
+  monkey -p ]=] .. package .. [=[ -c android.intent.category.LAUNCHER 1
+  foreground=$(dumpsys activity recents|sed -rn '\''s/.*Recent #0.*(com[^ ]+).*/\1/p'\'')
+  if [[ $foreground == *com.bilabila* ]];then
+     break
+  fi
+  sleep 5
+done
+secs=300
+endTime=$(( $(date +%s) + secs ))
+ok_found=0
+while [[ $(date +%s) -lt $endTime ]]; do
+  sleep 5
+  foreground=$(dumpsys activity recents|sed -rn '\''s/.*Recent #0.*(com[^ ]+).*/\1/p'\'')
+
+  if [[ ! $foreground == *com.bilabila* ]] && [[ $ok_found == 1 ]] ;then
+     exit
+  fi
+
+  if [[ ! $foreground == *com.bilabila* ]];then
+     continue
+  fi
+
+  uiautomator dump /sdcard/window_dump.xml
+
+  cancel=$(sed -rn '\''s|.*text=.取消.[^>]*bilabila[^>]*bounds=.\[([0-9]*),([0-9]*)\]\[([0-9]*),([0-9]*)\]..*|input tap $(((\1+\3)/2)) $(((\2+\4)/2))|p'\'' /sdcard/window_dump.xml)
+  ok=$(sed -rn '\''s|.*text=.确定.[^>]*bilabila[^>]*bounds=.\[([0-9]*),([0-9]*)\]\[([0-9]*),([0-9]*)\]..*|input tap $(((\1+\3)/2)) $(((\2+\4)/2))|p'\'' /sdcard/window_dump.xml)
+  close=$(sed -rn '\''s|.*text=.关闭.[^>]*bilabila[^>]*bounds=.\[([0-9]*),([0-9]*)\]\[([0-9]*),([0-9]*)\]..*|input tap $(((\1+\3)/2)) $(((\2+\4)/2))|p'\'' /sdcard/window_dump.xml)
+  if [[ -n $close ]]; then
+    eval $close
+  fi
+
+  if [[ -n $cancel ]]; then
+    eval $cancel
+    continue
+  elif [[ -n $ok ]]; then
+    sleep 1
+    eval $ok
+    ok_found=1
+    continue
+  fi
+
+  #start=$(sed -rn '\''s|.*text=.立即开始.[^>]*bilabila[^>]*bounds=.\[([0-9]*),([0-9]*)\]\[([0-9]*),([0-9]*)\]..*|input tap $(((\1+\3)/2)) $(((\2+\4)/2))|p'\'' /sdcard/window_dump.xml)
+  #if [[ -n $start ]]; then
+  #  eval $start
+  #  continue
+  #fi
+
+  # snap=$(sed -rn '\''s|.*com.bilabila.arknightsspeedrun2:id/switch_snap.[^>]*bilabila[^>]*bounds=.\[([0-9]*),([0-9]*)\]\[([0-9]*),([0-9]*)\]..*|input tap $(((\1+\3)/2)) $(((\2+\4)/2))|p'\'' /sdcard/window_dump.xml)
+  # if [[ -n $snap ]]; then
+  #   eval $snap
+  #   continue
+  # fi
+done
+done
+' > /dev/null & ]=]
 
     exec(cmd)
     ssleep(60)
@@ -4796,8 +4810,8 @@ end
 trim_game_memory = function()
     if not root_mode then return end
     local cmd = [[nohup su root sh -c ' \
-													am send-trim-memory ]] .. appid .. [[ RUNNING_CRITICAL
-													' > /dev/null & ]]
+am send-trim-memory ]] .. appid .. [[ RUNNING_CRITICAL
+' > /dev/null & ]]
 
     exec(cmd)
 end
@@ -4820,11 +4834,11 @@ oom_score_adj = function()
     --   sleep 0.1
     -- done
     local cmd = [[nohup su root sh -c ' \
-													echo -1000 > /proc/$(pidof ]] .. package .. [[:remote)/oom_score_adj
-													echo -1000 > /proc/$(pidof ]] .. package .. [[)/oom_score_adj
-													echo -1000 > /proc/$(pidof ]] .. package .. [[:acc)/oom_score_adj
-													echo -1000 > /proc/$(pidof ]] .. [[nc)/oom_score_adj
-													' > /dev/null & ]]
+echo -1000 > /proc/$(pidof ]] .. package .. [[:remote)/oom_score_adj
+echo -1000 > /proc/$(pidof ]] .. package .. [[)/oom_score_adj
+echo -1000 > /proc/$(pidof ]] .. package .. [[:acc)/oom_score_adj
+echo -1000 > /proc/$(pidof ]] .. [[nc)/oom_score_adj
+' > /dev/null & ]]
 
     exec(cmd)
 
@@ -4867,8 +4881,8 @@ disable_lmk = function()
     if not root_mode then return end
     if not enable_disable_lmk then return end
     local cmd = [[nohup su root sh -c ' \
-													echo 1,2,3,4,5,6 > /sys/module/lowmemorykiller/parameters/minfree
-													' > /dev/null & ]]
+echo 1,2,3,4,5,6 > /sys/module/lowmemorykiller/parameters/minfree
+' > /dev/null & ]]
     exec(cmd)
 end
 
@@ -5033,13 +5047,13 @@ end
 disableRootToast = function(reenable)
     -- toast会影响识别
     local cmd = [[nohup su root sh -c ' \
-													root_manager=$(pm list packages|grep -e .superuser -e .supersu -e .magisk | head -n1|cut -d: -f2)
-													root_manager=${root_manager:-com.android.settings}
-													appops set $root_manager TOAST_WINDOW ]] .. (reenable and "allow" or "deny") ..
+root_manager=$(pm list packages|grep -e .superuser -e .supersu -e .magisk | head -n1|cut -d: -f2)
+root_manager=${root_manager:-com.android.settings}
+appops set $root_manager TOAST_WINDOW ]] .. (reenable and "allow" or "deny") ..
         [[;
-													settings put global heads_up_notifications_enabled ]] .. (reenable and 1 or 0) ..
+settings put global heads_up_notifications_enabled ]] .. (reenable and 1 or 0) ..
         [[;
-													' > /dev/null & ]]
+' > /dev/null & ]]
     -- log(5208,cmd)
     exec(cmd)
     -- ssleep(1000)
